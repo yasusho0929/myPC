@@ -1,0 +1,82 @@
+{
+  "map": {
+    "crs": "Simple",
+    "view": {
+      "center": [0, 0],
+      "zoom": 1,
+      "bounds": [[-512, -512], [512, 512]]
+    },
+    "layer": {
+      "type": "tile",
+      "url": "",
+      "options": {
+        "tileSize": 256,
+        "noWrap": true
+      },
+      "maxBounds": [[-600, -600], [600, 600]]
+    }
+  },
+  "categories": [
+    {
+      "id": "collectibles",
+      "name": "Collectibles",
+      "markers": [
+        {
+          "id": "golden-banana-1",
+          "title": "Golden Banana #1",
+          "description": "Found near the sunken ship's helm.",
+          "coords": [128, -64],
+          "tooltip": "Golden Banana",
+          "icon": {
+            "iconUrl": "/contents/maps/demo/icons/golden-banana.png",
+            "iconSize": [32, 32],
+            "iconAnchor": [16, 32],
+            "popupAnchor": [0, -28]
+          }
+        },
+        {
+          "id": "crystal-coconut-1",
+          "title": "Crystal Coconut",
+          "description": "Inside the lighthouse alcove.",
+          "coords": [-96, 144],
+          "tooltip": "Crystal Coconut"
+        }
+      ]
+    },
+    {
+      "id": "points-of-interest",
+      "name": "Points of Interest",
+      "markers": [
+        {
+          "id": "warp-pad",
+          "title": "Warp Pad",
+          "description": "Fast travel to the ship deck.",
+          "coords": [256, 196],
+          "link": "https://example.com/gloomy-galleon/warp-pad",
+          "linkLabel": "Warp Pad details"
+        },
+        {
+          "id": "boss-entrance",
+          "title": "Boss Entrance",
+          "description": "The gate guarded by Klump.",
+          "coords": [-220, -210],
+          "image": "/contents/maps/demo/images/boss-entrance.jpg"
+        }
+      ]
+    },
+    {
+      "id": "secrets",
+      "name": "Secrets",
+      "visible": false,
+      "markers": [
+        {
+          "id": "hidden-room",
+          "title": "Hidden Room",
+          "description": "Accessible after solving the lantern puzzle.",
+          "coords": [64, 300],
+          "popup": true
+        }
+      ]
+    }
+  ]
+}
