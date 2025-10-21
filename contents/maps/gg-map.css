@@ -1,0 +1,131 @@
+/* Styles for Gloomy Galleon Leaflet maps */
+.gg-map {
+  position: relative;
+  background: #0c1a27;
+  color: #f8f9fa;
+}
+
+.gg-map__filters {
+  position: absolute;
+  top: 1rem;
+  left: 1rem;
+  z-index: 1000;
+  background: rgba(15, 23, 36, 0.85);
+  border-radius: 0.5rem;
+  padding: 0.75rem 1rem;
+  box-shadow: 0 0.75rem 1.5rem rgba(0, 0, 0, 0.35);
+  max-height: calc(100% - 2rem);
+  overflow-y: auto;
+  min-width: 13rem;
+}
+
+.gg-map__filters-heading {
+  margin: 0 0 0.5rem;
+  font-size: 1rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+.gg-map__filters-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 0.35rem;
+}
+
+.gg-map__filters-item {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.9rem;
+  line-height: 1.25;
+}
+
+.gg-map__filters-toggle {
+  margin: 0;
+  appearance: none;
+  width: 1.05rem;
+  height: 1.05rem;
+  border-radius: 0.2rem;
+  border: 2px solid rgba(255, 255, 255, 0.7);
+  background: transparent;
+  position: relative;
+  cursor: pointer;
+}
+
+.gg-map__filters-toggle:checked {
+  background: #3bd1ff;
+  border-color: #3bd1ff;
+}
+
+.gg-map__filters-toggle:checked::after {
+  content: "";
+  position: absolute;
+  inset: 0.15rem;
+  background: rgba(12, 26, 39, 0.9);
+  border-radius: 0.1rem;
+}
+
+.gg-map__filters-toggle:focus {
+  outline: 2px solid rgba(59, 209, 255, 0.5);
+  outline-offset: 2px;
+}
+
+.gg-map__filters-label {
+  flex: 1;
+  color: #f8f9fa;
+}
+
+.leaflet-popup-content-wrapper {
+  background: rgba(15, 23, 36, 0.92);
+  color: #f1f5f9;
+  border-radius: 0.75rem;
+  box-shadow: 0 1rem 2rem rgba(0, 0, 0, 0.4);
+}
+
+.leaflet-popup-tip {
+  background: rgba(15, 23, 36, 0.92);
+}
+
+.gg-map__popup-title {
+  margin: 0 0 0.5rem;
+  font-size: 1.1rem;
+  font-weight: 600;
+}
+
+.gg-map__popup-body {
+  margin: 0;
+  font-size: 0.92rem;
+  line-height: 1.4;
+}
+
+.gg-map__popup-meta {
+  margin-top: 0.75rem;
+  display: grid;
+  gap: 0.5rem;
+}
+
+.gg-map__popup-link {
+  color: #8be9fd;
+  text-decoration: underline;
+  text-decoration-thickness: 2px;
+}
+
+.gg-map__popup-image {
+  display: block;
+  max-width: 100%;
+  border-radius: 0.5rem;
+}
+
+@media (max-width: 768px) {
+  .gg-map__filters {
+    left: 50%;
+    transform: translateX(-50%);
+    min-width: min(20rem, 90vw);
+  }
+
+  .gg-map__filters-list {
+    grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr));
+  }
+}
