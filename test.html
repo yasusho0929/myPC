@@ -1,0 +1,686 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <title>ローカル画像/タイル マップエディタ（Leaflet・カテゴリ/CSV対応・完全ローカル）</title>
+  <!-- Leaflet（同ディレクトリに leaflet.css / leaflet.js を配置） -->
+  <link rel="stylesheet" href="./leaflet.css">
+  <script src="./leaflet.js"></script>
+  <style>
+    :root {
+      --bg: #0f1217; --panel: #171b22; --panel2: #1f2530; --text: #e6ebf5; --muted: #9aa5b1;
+      --accent: #4ea1ff; --accent2: #7cdfff; --danger: #ff6b6b; --ok: #00c853;
+    }
+    *{box-sizing:border-box}
+    body{margin:0;background:var(--bg);color:var(--text);font-family:system-ui,-apple-system,Segoe UI,Roboto,"Noto Sans JP","Helvetica Neue",Arial}
+    header{padding:14px 20px;border-bottom:1px solid #222836;background:linear-gradient(180deg,#141922 0%,#10141b 100%);
+      display:flex;align-items:center;justify-content:space-between}
+    header h1{margin:0;font-size:18px;letter-spacing:.3px}
+    .container{display:grid;grid-template-columns:380px 1fr;height:calc(100vh - 58px)}
+    aside{background:var(--panel);border-right:1px solid #222836;overflow-y:auto;padding:14px}
+    .section{margin-bottom:18px;background:var(--panel2);border:1px solid #2a3140;border-radius:10px;padding:12px}
+    .section h2{margin:0 0 10px;font-size:14px;font-weight:600;color:var(--accent2)}
+    .row{display:flex;gap:8px;align-items:center;margin-bottom:8px;flex-wrap:wrap}
+    input[type="file"]{width:100%}
+    .btn{background:#283248;color:var(--text);border:1px solid #35425f;border-radius:8px;padding:8px 12px;font-size:13px;cursor:pointer}
+    .btn:hover{background:#2d3850}
+    .btn.primary{background:#2b415f;border-color:#3c5b84;color:#eaf4ff}
+    .btn.primary:hover{background:#325072}
+    .btn.danger{background:#4b1f24;border-color:#692d35;color:#ffd7db}
+    .btn.danger:hover{background:#58262c}
+    .btn.ghost{background:transparent;border-color:#3c5b84}
+    .palette{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}
+    .icon-card{border:1px solid #334059;border-radius:10px;padding:8px;background:#232a37;display:flex;flex-direction:column;align-items:center;gap:6px}
+    .icon-card input[type="radio"]{accent-color:var(--accent)}
+    .icon-thumb{width:100%;height:64px;display:grid;place-items:center;background:#131720;border-radius:6px;overflow:hidden}
+    .icon-thumb img{max-width:100%;max-height:100%;image-rendering:auto}
+    .icon-meta{font-size:11px;color:var(--muted);text-align:center;word-break:break-all}
+    .status{font-size:12px;color:var(--muted)}
+    .map-wrap{position:relative}
+    #map{width:100%;height:100%}
+    .toolbar{position:absolute;top:12px;left:12px;display:flex;gap:8px;z-index:1000;background:rgba(20,24,32,.8);
+      padding:8px;border:1px solid #2a3140;border-radius:10px;backdrop-filter:blur(6px)}
+    .hint{font-size:12px;color:var(--muted);margin-top:6px}
+    .popup-form{min-width:260px;font-size:12px}
+    .popup-form label{display:block;margin:6px 0 4px;color:#bdd3ff}
+    .popup-form input[type="text"], .popup-form input[type="number"], .popup-form textarea{
+      width:100%;border:1px solid #3a4760;background:#0e1320;color:var(--text);border-radius:6px;padding:6px 8px;font-size:12px
+    }
+    .popup-actions{display:flex;justify-content:space-between;gap:8px;margin-top:8px}
+    .popup-actions .btn{width:100%;padding:6px 8px;font-size:12px}
+    .disabled{opacity:.6;pointer-events:none}
+    .kbd{border:1px solid #3b455a;background:#141a27;padding:2px 6px;border-radius:6px;font-size:11px;color:#d7e2ff}
+    a.inline{color:#a8d1ff;text-decoration:underline dotted;cursor:pointer}
+    .grid-toggle{display:flex;align-items:center;gap:6px}
+    .chip{display:inline-flex;align-items:center;gap:6px;background:#202838;border:1px solid #34415d;border-radius:999px;padding:4px 8px;font-size:11px;margin:2px 4px 0 0}
+    .chip input{accent-color:var(--accent)}
+  </style>
+</head>
+<body>
+<header>
+  <h1>ローカル画像/タイル マップエディタ（カテゴリ/CSV対応）</h1>
+  <div class="status" id="status">状態: マップ画像未読込</div>
+</header>
+
+<div class="container">
+  <aside>
+    <div class="section">
+      <h2>モード選択</h2>
+      <div class="row">
+        <label><input type="radio" name="mode" id="modeImage" checked> 画像オーバーレイ</label>
+        <label><input type="radio" name="mode" id="modeTiles"> タイルレイヤー</label>
+      </div>
+    </div>
+
+    <div class="section" id="imageSection">
+      <h2>マップ画像のアップロード（PNG/JPG/WEBP）</h2>
+      <div class="row"><input type="file" id="mapFile" accept="image/png,image/jpeg,image/webp" /></div>
+      <div class="hint">画像ピクセルを <span class="kbd">CRS.Simple</span> として扱います。</div>
+    </div>
+
+    <div class="section" id="tileSection" style="display:none">
+      <h2>タイルレイヤーのアップロード（フォルダごと）</h2>
+      <div class="row">
+        <input type="file" id="tileFolder" webkitdirectory directory multiple accept="image/*,.webp" />
+      </div>
+      <div class="hint">
+        対応構成: <code>/{z}/{x}/{y}.ext</code> または <code>/{z}/{x}_{y}.ext</code>（ext=png/jpg/jpeg/webp）<br>
+        ルートに <span class="kbd">emta.json</span> があれば <code>width/height/tileSize/maxNativeZoom</code> を優先採用します。
+      </div>
+    </div>
+
+    <div class="section">
+      <h2>アイコン画像のアップロード（複数可）</h2>
+      <div class="row"><input type="file" id="iconFiles" accept="image/*" multiple /></div>
+      <div class="row"><button class="btn" id="clearIconsBtn">アイコン一覧をクリア</button></div>
+      <div id="palette" class="palette" aria-label="アイコン選択パレット"></div>
+      <div class="hint">アイコンを選択 → マップをクリックで配置。</div>
+    </div>
+
+    <div class="section">
+      <h2>表示フィルター（カテゴリ）</h2>
+      <div id="filterPanel" class="row" aria-label="カテゴリフィルター"></div>
+      <div class="hint">マーカーの <span class="kbd">category</span> に応じて表示切替。チェックON=表示</div>
+    </div>
+
+    <div class="section">
+      <h2>配置の保存/復元</h2>
+      <div class="row">
+        <button class="btn primary disabled" id="exportBtn" title="マップ画像/タイル読み込み後に有効化">JSONダウンロード</button>
+        <button class="btn primary disabled" id="exportCsvBtn" title="マップ画像/タイル読み込み後に有効化">CSVダウンロード</button>
+        <label class="btn ghost"><input type="file" id="importJson" accept="application/json" style="display:none">JSONインポート</label>
+        <button class="btn" id="saveLocalBtn" title="ブラウザに保存">ローカル保存</button>
+        <button class="btn" id="loadLocalBtn">ローカル読込</button>
+      </div>
+      <div class="row grid-toggle">
+        <input type="checkbox" id="snapCheck"><label for="snapCheck">グリッドスナップ</label>
+        <input type="number" id="gridSize" min="1" value="8" style="width:72px" title="スナップ間隔(px)">
+      </div>
+      <div class="hint">JSON/CSV項目: type, x, y, title, description, <b>stage</b>, <b>seconds</b>, <b>category</b></div>
+    </div>
+  </aside>
+
+  <main class="map-wrap">
+    <div class="toolbar">
+      <button class="btn disabled" id="fitBtn">画像範囲へズーム</button>
+      <button class="btn disabled" id="clearMarkersBtn">すべてのアイコンを削除</button>
+      <div class="status" id="countStatus" style="padding-left:6px">0個</div>
+    </div>
+    <div id="map" aria-label="地図表示領域"></div>
+  </main>
+</div>
+
+<script>
+  // --- State ---
+  let map=null, imageLayer=null, tileLayer=null, imageFileName="";
+  let imageSize={width:0,height:0};
+  let bounds=null; // L.LatLngBounds in CRS.Simple
+  let icons=[]; // {id,name,dataUrl,width,height}
+  let selectedIconId=null;
+  const markers=new Map(); // markerId -> { marker, type, x, y, title, description, stage, seconds, category, visible }
+
+  // Undo/redo
+  const undoStack=[]; const redoStack=[]; const MAX_HISTORY=200;
+  let tileObjectUrls=[]; // ObjectURL revoke用
+
+  // Filters
+  const filterState=new Map(); // category -> boolean
+
+  // --- Elements ---
+  const statusEl=document.getElementById('status');
+  const countEl=document.getElementById('countStatus');
+  const filterPanel=document.getElementById('filterPanel');
+  const modeImage=document.getElementById('modeImage');
+  const modeTiles=document.getElementById('modeTiles');
+  const imageSection=document.getElementById('imageSection');
+  const tileSection=document.getElementById('tileSection');
+  const mapFileEl=document.getElementById('mapFile');
+  const iconFilesEl=document.getElementById('iconFiles');
+  const paletteEl=document.getElementById('palette');
+  const exportBtn=document.getElementById('exportBtn');
+  const exportCsvBtn=document.getElementById('exportCsvBtn');
+  const fitBtn=document.getElementById('fitBtn');
+  const clearMarkersBtn=document.getElementById('clearMarkersBtn');
+  const clearIconsBtn=document.getElementById('clearIconsBtn');
+  const importJsonEl=document.getElementById('importJson');
+  const saveLocalBtn=document.getElementById('saveLocalBtn');
+  const loadLocalBtn=document.getElementById('loadLocalBtn');
+  const snapCheck=document.getElementById('snapCheck');
+  const gridSizeEl=document.getElementById('gridSize');
+
+  // --- Utils ---
+  const uid=()=>Math.random().toString(36).slice(2,10);
+  const clamp=(v,min,max)=>Math.max(min,Math.min(max,v));
+  const pushHistory=()=>{
+    const snapshot={
+      imageSize:{...imageSize}, imageFileName,
+      items:[...markers.values()].map(m=>({
+        type:m.type, x:m.x, y:m.y,
+        title:m.title||"", description:m.description||"",
+        stage:m.stage||"", seconds:(m.seconds ?? ""), category:m.category||""
+      }))
+    };
+    undoStack.push(JSON.stringify(snapshot));
+    if(undoStack.length>MAX_HISTORY) undoStack.shift();
+    redoStack.length=0;
+  };
+  const restoreFromSnapshot=(json)=>{
+    const state=JSON.parse(json);
+    clearAllMarkers(false);
+    state.items.forEach(it=>{
+      const iconMeta=icons.find(i=>i.name===it.type) || icons[0];
+      if(iconMeta) placeMarker(iconMeta,it.x,it.y,{
+        title:it.title,description:it.description,stage:it.stage,seconds:it.seconds,category:it.category
+      },false);
+    });
+    updateCount(); rebuildFilters(); applyFilters();
+  };
+
+  function setStatus(text){ statusEl.textContent="状態: "+text; }
+  function enable(el,enabled=true){ el.classList.toggle('disabled',!enabled); el.disabled=!enabled; }
+  function updateCount(){ countEl.textContent=`${markers.size}個`; }
+
+  function dataUrlFromFile(file){
+    return new Promise((resolve,reject)=>{
+      const reader=new FileReader(); reader.onload=()=>resolve(reader.result); reader.onerror=reject; reader.readAsDataURL(file);
+    });
+  }
+  function loadImageDimensions(dataUrl){
+    return new Promise((resolve,reject)=>{
+      const img=new Image(); img.onload=()=>resolve({width:img.naturalWidth,height:img.naturalHeight}); img.onerror=reject; img.src=dataUrl;
+    });
+  }
+
+  // ★ 左上(0,0)原点のため Y を反転して変換
+  function latLngToPixel(latlng){
+    const x = clamp(latlng.lng, 0, imageSize.width);
+    const yTop = clamp(imageSize.height - latlng.lat, 0, imageSize.height);
+    return { x, y: yTop };
+  }
+  function pixelToLatLng(x,yTop){
+    const lat = imageSize.height - clamp(yTop, 0, imageSize.height);
+    const lng = clamp(x, 0, imageSize.width);
+    return L.latLng(lat, lng);
+  }
+
+  function createLeafletIcon(iconMeta){
+    const size=L.point(iconMeta.width||32,iconMeta.height||32);
+    return L.icon({ iconUrl:iconMeta.dataUrl, iconSize:size, iconAnchor:L.point(size.x/2,size.y/2), popupAnchor:L.point(0,-size.y/2) });
+  }
+
+  function refreshPalette(){
+    paletteEl.innerHTML='';
+    if(icons.length===0){ const empty=document.createElement('div'); empty.className='status'; empty.textContent='アイコンはまだありません。画像をアップロードしてください。'; paletteEl.appendChild(empty); return; }
+    icons.forEach(icon=>{
+      const card=document.createElement('div'); card.className='icon-card';
+      const thumb=document.createElement('div'); thumb.className='icon-thumb';
+      const img=document.createElement('img'); img.src=icon.dataUrl; thumb.appendChild(img);
+      const radio=document.createElement('input'); radio.type='radio'; radio.name='iconSelect'; radio.value=icon.id;
+      radio.checked=icon.id===selectedIconId; radio.addEventListener('change',()=>{ selectedIconId=icon.id; setStatus(`アイコン選択中: ${icon.name}`); });
+      const meta=document.createElement('div'); meta.className='icon-meta'; meta.textContent=icon.name;
+      card.appendChild(thumb); card.appendChild(radio); card.appendChild(meta); paletteEl.appendChild(card);
+    });
+  }
+
+  function initMapIfNeeded(){
+    if(map) return;
+    map=L.map('map',{ crs:L.CRS.Simple, minZoom:-5, maxZoom:5, zoomSnap:0.25, zoomDelta:0.5, wheelPxPerZoomLevel:120 });
+    map.setView([0,0],0);
+
+    // 画像/タイル読み込み後のクリックで配置
+    map.on('click',(e)=>{
+      if(!bounds||!selectedIconId) return;
+      if (e.originalEvent?.target && e.originalEvent.target.closest('.leaflet-popup')) return; // 保険
+
+      const iconMeta=icons.find(i=>i.id===selectedIconId); if(!iconMeta) return;
+      let {x,y}=latLngToPixel(e.latlng);
+      if(snapCheck.checked){ const g=Math.max(1,parseInt(gridSizeEl.value||'8',10)); x=Math.round(x/g)*g; y=Math.round(y/g)*g; }
+      pushHistory();
+      placeMarker(iconMeta,x,y,{},true);
+      rebuildFilters(); applyFilters();
+    });
+
+    // Shift+クリックで近傍削除
+    map.on('mousedown',(e)=>{
+      if(!e.originalEvent.shiftKey) return;
+      let nearest=null, minDist=Infinity;
+      markers.forEach(m=>{
+        const pos=m.marker.getLatLng();
+        const dx=pos.lng-e.latlng.lng; const dy=pos.lat-e.latlng.lat;
+        const d=Math.hypot(dx,dy); if(d<minDist){minDist=d; nearest=m;}
+      });
+      if(nearest && minDist<=16){ pushHistory(); removeMarker(nearest.marker.__id); rebuildFilters(); applyFilters(); }
+    });
+
+    // Ctrl/⌘+Z: Undo（Shift+同時でRedo）
+    window.addEventListener('keydown',(ev)=>{
+      const mod=ev.ctrlKey||ev.metaKey;
+      if(mod && ev.key.toLowerCase()==='z'){
+        ev.preventDefault();
+        if(ev.shiftKey){ if(redoStack.length){ const s=redoStack.pop(); undoStack.push(s); restoreFromSnapshot(s); } }
+        else{ if(undoStack.length){ const cur=undoStack.pop(); redoStack.push(cur); const prev=undoStack.length?undoStack[undoStack.length-1]:cur; restoreFromSnapshot(prev); } }
+      }
+    });
+  }
+
+  async function loadMapImage(file){
+    try{
+      const url=await dataUrlFromFile(file); const dim=await loadImageDimensions(url);
+      imageSize=dim; imageFileName=file.name;
+      bounds=new L.LatLngBounds([0,0],[dim.height,dim.width]); // 左上→右下
+      initMapIfNeeded();
+      if(tileLayer){ map.removeLayer(tileLayer); tileLayer=null; tileObjectUrls.forEach(u=>URL.revokeObjectURL(u)); tileObjectUrls=[]; }
+      if(imageLayer){ map.removeLayer(imageLayer); imageLayer=null; }
+      imageLayer=L.imageOverlay(url,bounds); imageLayer.addTo(map); map.fitBounds(bounds);
+      enable(exportBtn,true); enable(exportCsvBtn,true); enable(fitBtn,true); enable(clearMarkersBtn,true);
+      setStatus(`マップ画像読込完了: ${file.name} (${dim.width}×${dim.height}px)`); pushHistory();
+    }catch(err){ console.error(err); setStatus('マップ画像の読み込みに失敗しました'); }
+  }
+
+  async function loadIconFiles(files){
+    const newIcons=[];
+    for(const file of files){ const dataUrl=await dataUrlFromFile(file); const dim=await loadImageDimensions(dataUrl);
+      newIcons.push({ id:uid(), name:file.name, dataUrl, width:Math.min(dim.width,64), height:Math.min(dim.height,64) });
+    }
+    icons=icons.concat(newIcons);
+    if(newIcons.length>0){ selectedIconId=newIcons[newIcons.length-1].id; setStatus(`アイコン追加: ${newIcons.length}件（選択中: ${newIcons[newIcons.length - 1].name}）`); }
+    refreshPalette();
+  }
+
+  // ポップアップ（X/Y/出現ステージ/秒数/カテゴリを編集可能）
+  function buildPopupContent(markerId,data){
+    const wrap=document.createElement('div'); wrap.className='popup-form';
+
+    const lab1=document.createElement('label'); lab1.textContent='タイトル';
+    const title=document.createElement('input'); title.type='text'; title.id=`title-${markerId}`; title.value=data.title||''; title.placeholder='例：宝箱A';
+
+    const lab2=document.createElement('label'); lab2.textContent='説明';
+    const desc=document.createElement('textarea'); desc.id=`desc-${markerId}`; desc.rows=3; desc.placeholder='メモや注意事項'; desc.value=data.description||'';
+
+    const labStage=document.createElement('label'); labStage.textContent='出現ステージ';
+    const stage=document.createElement('input'); stage.type='text'; stage.id=`stage-${markerId}`; stage.value=(data.stage??'')+'';
+
+    const labSec=document.createElement('label'); labSec.textContent='秒数（seconds）';
+    const sec=document.createElement('input'); sec.type='number'; sec.min='0'; sec.step='1'; sec.id=`sec-${markerId}`; sec.value=(data.seconds ?? '');
+
+    const labCat=document.createElement('label'); labCat.textContent='カテゴリ（例: 1 / 2 / 3 / 任意文字）';
+    const cat=document.createElement('input'); cat.type='text'; cat.id=`cat-${markerId}`; cat.value=(data.category??'')+'';
+
+    const labX=document.createElement('label'); labX.textContent='X（ピクセル・左上原点）';
+    const inX=document.createElement('input'); inX.type='number'; inX.step='1'; inX.min='0'; inX.id=`x-${markerId}`; inX.value=Math.round(data.x);
+
+    const labY=document.createElement('label'); labY.textContent='Y（ピクセル・左上原点）';
+    const inY=document.createElement('input'); inY.type='number'; inY.step='1'; inY.min='0'; inY.id=`y-${markerId}`; inY.value=Math.round(data.y);
+
+    const actions=document.createElement('div'); actions.className='popup-actions';
+    const saveB=document.createElement('button'); saveB.type='button'; saveB.className='btn primary'; saveB.id=`save-${markerId}`; saveB.textContent='保存';
+    const delB=document.createElement('button'); delB.type='button'; delB.className='btn danger'; delB.id=`del-${markerId}`; delB.textContent='削除';
+    actions.appendChild(saveB); actions.appendChild(delB);
+
+    const hint=document.createElement('div'); hint.className='hint';
+    hint.textContent=`座標: x=${Math.round(data.x)}, y=${Math.round(data.y)} / stage=${data.stage??''} / seconds=${data.seconds??''} / category=${data.category??''}`;
+
+    wrap.appendChild(lab1); wrap.appendChild(title);
+    wrap.appendChild(lab2); wrap.appendChild(desc);
+    wrap.appendChild(labStage); wrap.appendChild(stage);
+    wrap.appendChild(labSec);   wrap.appendChild(sec);
+    wrap.appendChild(labCat);   wrap.appendChild(cat);
+    wrap.appendChild(labX);     wrap.appendChild(inX);
+    wrap.appendChild(labY);     wrap.appendChild(inY);
+    wrap.appendChild(actions);  wrap.appendChild(hint);
+
+    if (window.L && L.DomEvent) {
+      L.DomEvent.disableClickPropagation(wrap);
+      L.DomEvent.disableScrollPropagation(wrap);
+    }
+    return wrap;
+  }
+
+  function placeMarker(iconMeta,x,y,initData={},openPopupOnCreate=true){
+    const markerId=uid();
+    const icon=createLeafletIcon(iconMeta);
+    const marker=L.marker(pixelToLatLng(x,y),{draggable:true,icon}); marker.__id=markerId;
+    const mdata={ marker, type:iconMeta.name, x, y,
+      title:initData.title||'', description:initData.description||'',
+      stage:initData.stage||'', seconds:(initData.seconds ?? ''),
+      category:initData.category||'', visible:true
+    };
+    markers.set(markerId,mdata); marker.addTo(map); updateCount();
+
+    // ドラッグ：左上原点のため、lat->y変換は反転に注意
+    marker.on('drag',()=>{
+      let p=latLngToPixel(marker.getLatLng());
+      if(snapCheck.checked){ const g=Math.max(1,parseInt(gridSizeEl.value||'8',10)); p.x=Math.round(p.x/g)*g; p.y=Math.round(p.y/g)*g; }
+      marker.setLatLng(pixelToLatLng(p.x,p.y));
+    });
+    marker.on('dragend',()=>{
+      const pos=marker.getLatLng();
+      const p=latLngToPixel(pos);
+      mdata.x=p.x; mdata.y=p.y;
+      if(marker.isPopupOpen()){
+        marker.setPopupContent(buildPopupContent(markerId,mdata));
+        wirePopupEvents(markerId);
+      }
+    });
+
+    marker.bindPopup(buildPopupContent(markerId,mdata));
+    marker.on('popupopen',()=>wirePopupEvents(markerId));
+    if(openPopupOnCreate) marker.openPopup();
+  }
+
+  function wirePopupEvents(markerId){
+    const mdata=markers.get(markerId); if(!mdata) return;
+    const saveBtn=document.getElementById(`save-${markerId}`);
+    const delBtn=document.getElementById(`del-${markerId}`);
+    const titleEl=document.getElementById(`title-${markerId}`);
+    const descEl=document.getElementById(`desc-${markerId}`);
+    const stageEl=document.getElementById(`stage-${markerId}`);
+    const secEl=document.getElementById(`sec-${markerId}`);
+    const catEl=document.getElementById(`cat-${markerId}`);
+    const xEl=document.getElementById(`x-${markerId}`);
+    const yEl=document.getElementById(`y-${markerId}`);
+
+    if (saveBtn) {
+      saveBtn.addEventListener('click', (ev) => {
+        ev.preventDefault();
+        ev.stopPropagation(); // クリック伝播で別マーカーが置かれるのを防止
+        pushHistory();
+
+        mdata.title=titleEl.value.trim();
+        mdata.description=descEl.value.trim();
+        mdata.stage=(stageEl?.value||'').trim();
+        const secVal=(secEl?.value??'').toString().trim();
+        mdata.seconds = secVal === '' ? '' : Math.max(0, parseInt(secVal,10) || 0);
+        mdata.category=catEl.value.trim();
+
+        let nx=Number(xEl.value), ny=Number(yEl.value);
+        if(Number.isFinite(nx)&&Number.isFinite(ny)){
+          nx=clamp(nx,0,imageSize.width); ny=clamp(ny,0,imageSize.height);
+          if(snapCheck.checked){ const g=Math.max(1,parseInt(gridSizeEl.value||'8',10)); nx=Math.round(nx/g)*g; ny=Math.round(ny/g)*g; }
+          mdata.x=nx; mdata.y=ny; mdata.marker.setLatLng(pixelToLatLng(nx,ny));
+        }
+        setStatus('マーカー情報を保存しました');
+        mdata.marker.setPopupContent(buildPopupContent(markerId,mdata)); mdata.marker.openPopup(); wirePopupEvents(markerId);
+        rebuildFilters(); applyFilters();
+      }, { once: true });
+    }
+    if (delBtn) {
+      delBtn.addEventListener('click', (ev) => {
+        ev.preventDefault();
+        ev.stopPropagation();
+        pushHistory();
+        removeMarker(markerId);
+        rebuildFilters(); applyFilters();
+      }, { once: true });
+    }
+  }
+
+  function removeMarker(markerId){ const mdata=markers.get(markerId); if(!mdata) return; map.removeLayer(mdata.marker); markers.delete(markerId); setStatus('アイコンを削除しました'); updateCount(); }
+  function clearAllMarkers(push=true){ markers.forEach((m)=>map.removeLayer(m.marker)); markers.clear(); if(push) pushHistory(); updateCount(); setStatus('すべてのアイコンを削除しました'); }
+
+  function showMarker(m){ if(!map.hasLayer(m.marker)){ m.marker.addTo(map); } m.visible=true; }
+  function hideMarker(m){ if(map.hasLayer(m.marker)){ map.removeLayer(m.marker); } m.visible=false; }
+
+  // --- Filtering ---
+  function currentCategories(){
+    const set=new Set(); markers.forEach(m=>{ const c=(m.category??'').toString(); if(c.length) set.add(c); });
+    return Array.from(set).sort();
+  }
+  function rebuildFilters(){
+    const cats=currentCategories();
+    filterPanel.innerHTML='';
+    if(cats.length===0){ const span=document.createElement('div'); span.className='status'; span.textContent='カテゴリ未設定のマーカーのみ'; filterPanel.appendChild(span); return; }
+    cats.forEach(c=>{
+      if(!filterState.has(c)) filterState.set(c,true);
+      const chip=document.createElement('label'); chip.className='chip'; chip.title=`category=${c}`;
+      const cb=document.createElement('input'); cb.type='checkbox'; cb.checked=!!filterState.get(c);
+      cb.addEventListener('change',()=>{ filterState.set(c,cb.checked); applyFilters(); });
+      const txt=document.createElement('span'); txt.textContent=c;
+      chip.appendChild(cb); chip.appendChild(txt); filterPanel.appendChild(chip);
+    });
+  }
+  function applyFilters(){
+    if(filterState.size===0){ markers.forEach(m=>showMarker(m)); return; }
+    markers.forEach(m=>{
+      const c=(m.category??'').toString();
+      if(c.length===0){ showMarker(m); return; } // 無指定は常に表示（必要なら仕様変更可）
+      const ok=filterState.get(c); if(ok===false) hideMarker(m); else showMarker(m);
+    });
+  }
+
+  // --- Export / Import ---
+  function exportJSON(){
+    const out=[]; markers.forEach(m=>out.push({
+      type:m.type, x:Math.round(m.x), y:Math.round(m.y),
+      title:m.title||'', description:m.description||'',
+      stage:m.stage||'', seconds:(m.seconds ?? ''), category:m.category||''
+    }));
+    const payload={ image:{file:imageFileName,width:imageSize.width,height:imageSize.height}, items:out, generatedAt:new Date().toISOString() };
+    const blob=new Blob([JSON.stringify(payload,null,2)],{type:'application/json'});
+    const a=document.createElement('a'); a.href=URL.createObjectURL(blob);
+    const base=imageFileName?imageFileName.replace(/\.[^.]+$/,''):(tileLayer?'tiles':'map');
+    a.download=`${base}-items-${Date.now()}.json`; document.body.appendChild(a); a.click(); URL.revokeObjectURL(a.href); a.remove();
+    setStatus(`JSONをダウンロードしました（${out.length}件）`);
+  }
+
+  // CSV出力（UTF-8 with BOM / Excel想定） 列順: type,x,y,title,description,stage,seconds,category
+  function exportCSV(){
+    const rows = [['type','x','y','title','description','stage','seconds','category']];
+    markers.forEach(m=>{
+      const esc = s => (''+(s??'')).replace(/"/g,'""');
+      rows.push([
+        m.type,
+        Math.round(m.x),
+        Math.round(m.y),
+        esc(m.title||''),
+        esc(m.description||''),
+        esc(m.stage||''),
+        (m.seconds ?? ''),
+        esc(m.category||'')
+      ]);
+    });
+    const csv = rows.map(r=>r.map(v=>`"${v}"`).join(',')).join('\r\n');
+    const bom = '\uFEFF';
+    const blob = new Blob([bom+csv], { type:'text/csv;charset=utf-8;' });
+    const a = document.createElement('a');
+    const base = imageFileName?imageFileName.replace(/\.[^.]+$/,''):(tileLayer?'tiles':'map');
+    a.href = URL.createObjectURL(blob);
+    a.download = `${base}-items-${Date.now()}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    URL.revokeObjectURL(a.href);
+    a.remove();
+    setStatus(`CSVをダウンロードしました（${markers.size}件）`);
+  }
+
+  function importJSON(file){
+    dataUrlFromFile(file).then(url=>{
+      fetch(url).then(res=>res.text()).then(txt=>{
+        const data=JSON.parse(txt); if(!data.items){ setStatus('JSONフォーマット不正'); return; }
+        clearAllMarkers(false);
+        (data.items||[]).forEach(it=>{
+          const iconMeta=icons.find(i=>i.name===it.type)||icons[0];
+          if(iconMeta) placeMarker(iconMeta,it.x,it.y,{
+            title:it.title, description:it.description,
+            stage:it.stage, seconds:it.seconds, category:it.category
+          },false);
+        });
+        if(data.image && data.image.width && data.image.height &&
+           data.image.width===imageSize.width && data.image.height===imageSize.height){
+          if(bounds&&map) map.fitBounds(bounds);
+        }
+        pushHistory(); updateCount(); setStatus('JSONを読み込みました'); rebuildFilters(); applyFilters();
+      }).catch(()=>setStatus('JSONの読み込みに失敗しました'));
+    });
+  }
+
+  function saveLocal(){
+    const out=[]; markers.forEach(m=>out.push({
+      type:m.type, x:m.x, y:m.y,
+      title:m.title||'', description:m.description||'',
+      stage:m.stage||'', seconds:(m.seconds ?? ''), category:m.category||''
+    }));
+    const payload={ image:{file:imageFileName,width:imageSize.width,height:imageSize.height}, items:out, savedAt:new Date().toISOString() };
+    localStorage.setItem('leaflet-local-map-editor', JSON.stringify(payload));
+    setStatus('ブラウザに保存しました');
+  }
+  function loadLocal(){
+    const txt=localStorage.getItem('leaflet-local-map-editor');
+    if(!txt){ setStatus('保存データが見つかりません'); return; }
+    const data=JSON.parse(txt);
+    clearAllMarkers(false);
+    (data.items||[]).forEach(it=>{
+      const iconMeta=icons.find(i=>i.name===it.type)||icons[0];
+      if(iconMeta) placeMarker(iconMeta,it.x,it.y,{
+        title:it.title, description:it.description,
+        stage:it.stage, seconds:it.seconds, category:it.category
+      },false);
+    });
+    pushHistory(); updateCount(); setStatus('ブラウザ保存データを読み込みました'); rebuildFilters(); applyFilters();
+  }
+
+  // ===== ローカルタイル対応 =====
+  const TRANSPARENT_PNG = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR4nGNgYAAAAAMAASsJTYQAAAAASUVORK5CYII=";
+
+  function parseTilePath(relPath){
+    const clean=(relPath||'').replace(/^[.\/]+/,"");
+    const parts=clean.split("/");
+    const file=parts.pop()||"";
+    const zStr=parts.pop();
+    const z=Number(zStr);
+    if(!Number.isInteger(z)) return null;
+    const base=file.replace(/\.[^.]+$/,"");
+    if(parts.length>=1){
+      const xStr=parts.pop();
+      if(/^\d+$/.test(base)){
+        const y=Number(base); const x=Number(xStr);
+        if(Number.isInteger(x)&&Number.isInteger(y)) return {z,x,y};
+      }
+      const xy=base.split("_");
+      if(xy.length===2 && /^\d+$/.test(xy[0]) && /^\d+$/.test(xy[1])) return {z,x:Number(xy[0]),y:Number(xy[1])};
+    } else {
+      const xy=base.split("_");
+      if(xy.length===2 && /^\d+$/.test(xy[0]) && /^\d+$/.test(xy[1])) return {z,x:Number(xy[0]),y:Number(xy[1])};
+    }
+    return null;
+  }
+
+  async function loadTileFolder(fileList){
+    if(!fileList||fileList.length===0) return;
+    if(tileLayer){ map&&map.removeLayer(tileLayer); tileLayer=null; }
+    tileObjectUrls.forEach(u=>URL.revokeObjectURL(u)); tileObjectUrls=[];
+    const all=Array.from(fileList);
+
+    // emta.json 読み込み（任意）
+    let meta=null;
+    const metaFile=all.find(f=>(f.webkitRelativePath||f.name).endsWith('/emta.json')||(f.webkitRelativePath||f.name)==='emta.json');
+    if(metaFile){
+      try{
+        const txt=await metaFile.text(); const j=JSON.parse(txt);
+        if(Number.isFinite(j.width)&&Number.isFinite(j.height)&&Number.isFinite(j.tileSize)){
+          meta={ width:j.width, height:j.height, tileSize:j.tileSize, maxNativeZoom:Number.isFinite(j.maxNativeZoom)?j.maxNativeZoom:undefined };
+        }
+      }catch(e){ console.warn('emta.json の読み込みに失敗:',e); }
+    }
+
+    // 画像ファイル抽出
+    const imgLike=all.filter(f=>{
+      const t=(f.type||'').toLowerCase(); const n=(f.name||'').toLowerCase(); const p=(f.webkitRelativePath||f.name);
+      const isImage=t.startsWith('image/');
+      const byExt=n.endsWith('.webp')||n.endsWith('.png')||n.endsWith('.jpg')||n.endsWith('.jpeg');
+      return (isImage||byExt)&&p;
+    });
+    if(imgLike.length===0){ setStatus('タイル画像が見つかりませんでした'); return; }
+
+    // タイル登録
+    const tiles=Object.create(null); let maxZ=-Infinity,maxX=-Infinity,maxY=-Infinity; let tileSize=meta?.tileSize??256;
+    if(!meta?.tileSize){
+      try{
+        const one=imgLike[0]; const url=URL.createObjectURL(one); tileObjectUrls.push(url);
+        const size=await new Promise((resolve,reject)=>{ const img=new Image(); img.onload=()=>resolve({w:img.naturalWidth,h:img.naturalHeight}); img.onerror=reject; img.src=url; });
+        tileSize=size.w;
+      }catch(e){}
+    }
+
+    for(const f of imgLike){
+      const rel=f.webkitRelativePath||f.name; const p=parseTilePath(rel); if(!p) continue;
+      const url=URL.createObjectURL(f); tileObjectUrls.push(url);
+      if(!tiles[p.z]) tiles[p.z]=Object.create(null);
+      if(!tiles[p.z][p.x]) tiles[p.z][p.x]=Object.create(null);
+      tiles[p.z][p.x][p.y]=url;
+      if(p.z>maxZ) maxZ=p.z; if(p.x>maxX) maxX=p.x; if(p.y>maxY) maxY=p.y;
+    }
+    if(maxZ===-Infinity){ setStatus('有効なタイルパスが見つかりませんでした'); return; }
+
+    const widthPx=meta?.width??((maxX+1)*tileSize);
+    const heightPx=meta?.height??((maxY+1)*tileSize);
+
+    initMapIfNeeded();
+    if(imageLayer){ map.removeLayer(imageLayer); imageLayer=null; }
+
+    // 左上(0,0)原点で扱うため、bounds は [0,0]（左上）→ [height,width]（右下）
+    imageSize={width:widthPx,height:heightPx};
+    bounds=new L.LatLngBounds([0,0],[heightPx,widthPx]);
+
+    const LocalTileLayer=L.TileLayer.extend({
+      getTileUrl:function(coords){
+        const z=coords.z,x=coords.x,y=coords.y;
+        const url=tiles[z]&&tiles[z][x]&&tiles[z][x][y];
+        return url||TRANSPARENT_PNG;
+      }
+    });
+    const maxZoom=Number.isFinite(meta?.maxNativeZoom)?meta.maxNativeZoom:maxZ;
+
+    tileLayer=new LocalTileLayer('',{ tileSize:tileSize, minZoom:0, maxZoom:maxZoom, noWrap:true, bounds:bounds });
+    tileLayer.addTo(map); map.setView([heightPx/2,widthPx/2], Math.min(maxZoom,maxZ)); map.fitBounds(bounds);
+
+    enable(exportBtn,true); enable(exportCsvBtn,true); enable(fitBtn,true); enable(clearMarkersBtn,true);
+    imageFileName='tiles';
+    setStatus(`タイル読込完了: z=0..${maxZ} / size=${widthPx}×${heightPx}px / tile=${tileSize}px / maxNativeZoom=${maxZoom}`);
+    pushHistory();
+  }
+  // ===== ローカルタイル対応ここまで =====
+
+  // --- Event bindings ---
+  mapFileEl.addEventListener('change',(e)=>{ const file=e.target.files&&e.target.files[0]; if(!file) return; loadMapImage(file); });
+  iconFilesEl.addEventListener('change',(e)=>{ const files=Array.from(e.target.files||[]); if(!files.length) return; loadIconFiles(files); });
+  exportBtn.addEventListener('click',()=>{ if(exportBtn.classList.contains('disabled')) return; exportJSON(); });
+  exportCsvBtn.addEventListener('click',()=>{ if(exportCsvBtn.classList.contains('disabled')) return; exportCSV(); });
+  fitBtn.addEventListener('click',()=>{ if(fitBtn.classList.contains('disabled')) return; if(bounds&&map) map.fitBounds(bounds); });
+  clearMarkersBtn.addEventListener('click',()=>{ if(clearMarkersBtn.classList.contains('disabled')) return; pushHistory(); clearAllMarkers(false); rebuildFilters(); applyFilters(); });
+  clearIconsBtn.addEventListener('click',()=>{ icons=[]; selectedIconId=null; refreshPalette(); setStatus('アイコン一覧をクリアしました'); });
+  document.querySelector('label.btn.ghost input#importJson').addEventListener('change',(e)=>{ const f=e.target.files&&e.target.files[0]; if(f) importJSON(f); e.target.value=''; });
+  document.getElementById('tileFolder').addEventListener('change',(e)=>{ const files=e.target.files; if(files&&files.length) loadTileFolder(files); });
+
+  function switchMode(){
+    const isImage=modeImage.checked; imageSection.style.display=isImage?'':'none'; tileSection.style.display=isImage?'none':'';
+  }
+  modeImage.addEventListener('change', switchMode);
+  modeTiles.addEventListener('change', switchMode);
+
+  // --- Startup ---
+  setStatus('マップ画像未読込（画像 or タイルフォルダを選択してください）');
+  updateCount(); switchMode();
+</script>
+</body>
+</html>
