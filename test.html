@@ -2,7 +2,7 @@
 <html lang="ja">
 <head>
   <meta charset="UTF-8" />
-  <title>ローカル画像/タイル マップエディタ（Leaflet・カテゴリ/CSV対応・完全ローカル）</title>
+  <title>ローカル画像マップエディタ（Leaflet・カテゴリ/CSV対応・完全ローカル）</title>
   <!-- Leaflet（同ディレクトリに leaflet.css / leaflet.js を配置） -->
   <link rel="stylesheet" href="./leaflet.css">
   <script src="./leaflet.js"></script>
@@ -58,40 +58,23 @@
 </head>
 <body>
 <header>
-  <h1>ローカル画像/タイル マップエディタ（カテゴリ/CSV対応）</h1>
+  <h1>ローカル画像マップエディタ（カテゴリ/CSV対応）</h1>
   <div class="status" id="status">状態: マップ画像未読込</div>
 </header>
 
 <div class="container">
   <aside>
-    <div class="section">
-      <h2>モード選択</h2>
-      <div class="row">
-        <label><input type="radio" name="mode" id="modeImage" checked> 画像オーバーレイ</label>
-        <label><input type="radio" name="mode" id="modeTiles"> タイルレイヤー</label>
-      </div>
-    </div>
-
     <div class="section" id="imageSection">
       <h2>マップ画像のアップロード（PNG/JPG/WEBP）</h2>
       <div class="row"><input type="file" id="mapFile" accept="image/png,image/jpeg,image/webp" /></div>
       <div class="hint">画像ピクセルを <span class="kbd">CRS.Simple</span> として扱います。</div>
     </div>
 
-    <div class="section" id="tileSection" style="display:none">
-      <h2>タイルレイヤーのアップロード（フォルダごと）</h2>
-      <div class="row">
-        <input type="file" id="tileFolder" webkitdirectory directory multiple accept="image/*,.webp" />
-      </div>
-      <div class="hint">
-        対応構成: <code>/{z}/{x}/{y}.ext</code> または <code>/{z}/{x}_{y}.ext</code>（ext=png/jpg/jpeg/webp）<br>
-        ルートに <span class="kbd">emta.json</span> があれば <code>width/height/tileSize/maxNativeZoom</code> を優先採用します。
-      </div>
-    </div>
-
     <div class="section">
       <h2>アイコン画像のアップロード（複数可）</h2>
       <div class="row"><input type="file" id="iconFiles" accept="image/*" multiple /></div>
+      <div class="row"><input type="file" id="iconFolder" webkitdirectory directory multiple accept="image/png,image/webp" /></div>
+      <div class="hint">アイコンフォルダ例: <code>@localhost/public_html/yasusho-topics.com/wp-content/themes/cocoon-child-master/</code></div>
       <div class="row"><button class="btn" id="clearIconsBtn">アイコン一覧をクリア</button></div>
       <div id="palette" class="palette" aria-label="アイコン選択パレット"></div>
       <div class="hint">アイコンを選択 → マップをクリックで配置。</div>
@@ -106,8 +89,8 @@
     <div class="section">
       <h2>配置の保存/復元</h2>
       <div class="row">
-        <button class="btn primary disabled" id="exportBtn" title="マップ画像/タイル読み込み後に有効化">JSONダウンロード</button>
-        <button class="btn primary disabled" id="exportCsvBtn" title="マップ画像/タイル読み込み後に有効化">CSVダウンロード</button>
+        <button class="btn primary disabled" id="exportBtn" title="マップ画像読み込み後に有効化">JSONダウンロード</button>
+        <button class="btn primary disabled" id="exportCsvBtn" title="マップ画像読み込み後に有効化">CSVダウンロード</button>
         <label class="btn ghost"><input type="file" id="importJson" accept="application/json" style="display:none">JSONインポート</label>
         <button class="btn" id="saveLocalBtn" title="ブラウザに保存">ローカル保存</button>
         <button class="btn" id="loadLocalBtn">ローカル読込</button>
@@ -132,7 +115,7 @@
 
 <script>
   // --- State ---
-  let map=null, imageLayer=null, tileLayer=null, imageFileName="";
+  let map=null, imageLayer=null, imageFileName="";
   let imageSize={width:0,height:0};
   let bounds=null; // L.LatLngBounds in CRS.Simple
   let icons=[]; // {id,name,dataUrl,width,height}
@@ -141,8 +124,6 @@
 
   // Undo/redo
   const undoStack=[]; const redoStack=[]; const MAX_HISTORY=200;
-  let tileObjectUrls=[]; // ObjectURL revoke用
-
   // Filters
   const filterState=new Map(); // category -> boolean
 
@@ -150,12 +131,9 @@
   const statusEl=document.getElementById('status');
   const countEl=document.getElementById('countStatus');
   const filterPanel=document.getElementById('filterPanel');
-  const modeImage=document.getElementById('modeImage');
-  const modeTiles=document.getElementById('modeTiles');
-  const imageSection=document.getElementById('imageSection');
-  const tileSection=document.getElementById('tileSection');
   const mapFileEl=document.getElementById('mapFile');
   const iconFilesEl=document.getElementById('iconFiles');
+  const iconFolderEl=document.getElementById('iconFolder');
   const paletteEl=document.getElementById('palette');
   const exportBtn=document.getElementById('exportBtn');
   const exportCsvBtn=document.getElementById('exportCsvBtn');
@@ -289,7 +267,6 @@
       imageSize=dim; imageFileName=file.name;
       bounds=new L.LatLngBounds([0,0],[dim.height,dim.width]); // 左上→右下
       initMapIfNeeded();
-      if(tileLayer){ map.removeLayer(tileLayer); tileLayer=null; tileObjectUrls.forEach(u=>URL.revokeObjectURL(u)); tileObjectUrls=[]; }
       if(imageLayer){ map.removeLayer(imageLayer); imageLayer=null; }
       imageLayer=L.imageOverlay(url,bounds); imageLayer.addTo(map); map.fitBounds(bounds);
       enable(exportBtn,true); enable(exportCsvBtn,true); enable(fitBtn,true); enable(clearMarkersBtn,true);
@@ -478,7 +455,7 @@
     const payload={ image:{file:imageFileName,width:imageSize.width,height:imageSize.height}, items:out, generatedAt:new Date().toISOString() };
     const blob=new Blob([JSON.stringify(payload,null,2)],{type:'application/json'});
     const a=document.createElement('a'); a.href=URL.createObjectURL(blob);
-    const base=imageFileName?imageFileName.replace(/\.[^.]+$/,''):(tileLayer?'tiles':'map');
+    const base=imageFileName?imageFileName.replace(/\.[^.]+$/,''):'map';
     a.download=`${base}-items-${Date.now()}.json`; document.body.appendChild(a); a.click(); URL.revokeObjectURL(a.href); a.remove();
     setStatus(`JSONをダウンロードしました（${out.length}件）`);
   }
@@ -503,7 +480,7 @@
     const bom = '\uFEFF';
     const blob = new Blob([bom+csv], { type:'text/csv;charset=utf-8;' });
     const a = document.createElement('a');
-    const base = imageFileName?imageFileName.replace(/\.[^.]+$/,''):(tileLayer?'tiles':'map');
+    const base = imageFileName?imageFileName.replace(/\.[^.]+$/,''):'map';
     a.href = URL.createObjectURL(blob);
     a.download = `${base}-items-${Date.now()}.csv`;
     document.body.appendChild(a);
@@ -558,129 +535,31 @@
     });
     pushHistory(); updateCount(); setStatus('ブラウザ保存データを読み込みました'); rebuildFilters(); applyFilters();
   }
-
-  // ===== ローカルタイル対応 =====
-  const TRANSPARENT_PNG = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR4nGNgYAAAAAMAASsJTYQAAAAASUVORK5CYII=";
-
-  function parseTilePath(relPath){
-    const clean=(relPath||'').replace(/^[.\/]+/,"");
-    const parts=clean.split("/");
-    const file=parts.pop()||"";
-    const zStr=parts.pop();
-    const z=Number(zStr);
-    if(!Number.isInteger(z)) return null;
-    const base=file.replace(/\.[^.]+$/,"");
-    if(parts.length>=1){
-      const xStr=parts.pop();
-      if(/^\d+$/.test(base)){
-        const y=Number(base); const x=Number(xStr);
-        if(Number.isInteger(x)&&Number.isInteger(y)) return {z,x,y};
-      }
-      const xy=base.split("_");
-      if(xy.length===2 && /^\d+$/.test(xy[0]) && /^\d+$/.test(xy[1])) return {z,x:Number(xy[0]),y:Number(xy[1])};
-    } else {
-      const xy=base.split("_");
-      if(xy.length===2 && /^\d+$/.test(xy[0]) && /^\d+$/.test(xy[1])) return {z,x:Number(xy[0]),y:Number(xy[1])};
-    }
-    return null;
-  }
-
-  async function loadTileFolder(fileList){
-    if(!fileList||fileList.length===0) return;
-    if(tileLayer){ map&&map.removeLayer(tileLayer); tileLayer=null; }
-    tileObjectUrls.forEach(u=>URL.revokeObjectURL(u)); tileObjectUrls=[];
-    const all=Array.from(fileList);
-
-    // emta.json 読み込み（任意）
-    let meta=null;
-    const metaFile=all.find(f=>(f.webkitRelativePath||f.name).endsWith('/emta.json')||(f.webkitRelativePath||f.name)==='emta.json');
-    if(metaFile){
-      try{
-        const txt=await metaFile.text(); const j=JSON.parse(txt);
-        if(Number.isFinite(j.width)&&Number.isFinite(j.height)&&Number.isFinite(j.tileSize)){
-          meta={ width:j.width, height:j.height, tileSize:j.tileSize, maxNativeZoom:Number.isFinite(j.maxNativeZoom)?j.maxNativeZoom:undefined };
-        }
-      }catch(e){ console.warn('emta.json の読み込みに失敗:',e); }
-    }
-
-    // 画像ファイル抽出
-    const imgLike=all.filter(f=>{
-      const t=(f.type||'').toLowerCase(); const n=(f.name||'').toLowerCase(); const p=(f.webkitRelativePath||f.name);
-      const isImage=t.startsWith('image/');
-      const byExt=n.endsWith('.webp')||n.endsWith('.png')||n.endsWith('.jpg')||n.endsWith('.jpeg');
-      return (isImage||byExt)&&p;
+  async function loadIconFolder(fileList){
+    if(!fileList||fileList.length===0){ setStatus('アイコンフォルダが空です'); return; }
+    const picked=Array.from(fileList).filter(f=>{
+      const n=(f.name||'').toLowerCase();
+      return n.endsWith('.png')||n.endsWith('.webp');
     });
-    if(imgLike.length===0){ setStatus('タイル画像が見つかりませんでした'); return; }
-
-    // タイル登録
-    const tiles=Object.create(null); let maxZ=-Infinity,maxX=-Infinity,maxY=-Infinity; let tileSize=meta?.tileSize??256;
-    if(!meta?.tileSize){
-      try{
-        const one=imgLike[0]; const url=URL.createObjectURL(one); tileObjectUrls.push(url);
-        const size=await new Promise((resolve,reject)=>{ const img=new Image(); img.onload=()=>resolve({w:img.naturalWidth,h:img.naturalHeight}); img.onerror=reject; img.src=url; });
-        tileSize=size.w;
-      }catch(e){}
-    }
-
-    for(const f of imgLike){
-      const rel=f.webkitRelativePath||f.name; const p=parseTilePath(rel); if(!p) continue;
-      const url=URL.createObjectURL(f); tileObjectUrls.push(url);
-      if(!tiles[p.z]) tiles[p.z]=Object.create(null);
-      if(!tiles[p.z][p.x]) tiles[p.z][p.x]=Object.create(null);
-      tiles[p.z][p.x][p.y]=url;
-      if(p.z>maxZ) maxZ=p.z; if(p.x>maxX) maxX=p.x; if(p.y>maxY) maxY=p.y;
-    }
-    if(maxZ===-Infinity){ setStatus('有効なタイルパスが見つかりませんでした'); return; }
-
-    const widthPx=meta?.width??((maxX+1)*tileSize);
-    const heightPx=meta?.height??((maxY+1)*tileSize);
-
-    initMapIfNeeded();
-    if(imageLayer){ map.removeLayer(imageLayer); imageLayer=null; }
-
-    // 左上(0,0)原点で扱うため、bounds は [0,0]（左上）→ [height,width]（右下）
-    imageSize={width:widthPx,height:heightPx};
-    bounds=new L.LatLngBounds([0,0],[heightPx,widthPx]);
-
-    const LocalTileLayer=L.TileLayer.extend({
-      getTileUrl:function(coords){
-        const z=coords.z,x=coords.x,y=coords.y;
-        const url=tiles[z]&&tiles[z][x]&&tiles[z][x][y];
-        return url||TRANSPARENT_PNG;
-      }
-    });
-    const maxZoom=Number.isFinite(meta?.maxNativeZoom)?meta.maxNativeZoom:maxZ;
-
-    tileLayer=new LocalTileLayer('',{ tileSize:tileSize, minZoom:0, maxZoom:maxZoom, noWrap:true, bounds:bounds });
-    tileLayer.addTo(map); map.setView([heightPx/2,widthPx/2], Math.min(maxZoom,maxZ)); map.fitBounds(bounds);
-
-    enable(exportBtn,true); enable(exportCsvBtn,true); enable(fitBtn,true); enable(clearMarkersBtn,true);
-    imageFileName='tiles';
-    setStatus(`タイル読込完了: z=0..${maxZ} / size=${widthPx}×${heightPx}px / tile=${tileSize}px / maxNativeZoom=${maxZoom}`);
-    pushHistory();
+    if(picked.length===0){ setStatus('フォルダ内にPNGまたはWEBPが見つかりません'); return; }
+    await loadIconFiles(picked);
+    setStatus(`フォルダからアイコンを読み込みました（${picked.length}件）`);
   }
-  // ===== ローカルタイル対応ここまで =====
 
   // --- Event bindings ---
   mapFileEl.addEventListener('change',(e)=>{ const file=e.target.files&&e.target.files[0]; if(!file) return; loadMapImage(file); });
   iconFilesEl.addEventListener('change',(e)=>{ const files=Array.from(e.target.files||[]); if(!files.length) return; loadIconFiles(files); });
+  iconFolderEl.addEventListener('change',(e)=>{ const files=e.target.files; if(files&&files.length) loadIconFolder(files); });
   exportBtn.addEventListener('click',()=>{ if(exportBtn.classList.contains('disabled')) return; exportJSON(); });
   exportCsvBtn.addEventListener('click',()=>{ if(exportCsvBtn.classList.contains('disabled')) return; exportCSV(); });
   fitBtn.addEventListener('click',()=>{ if(fitBtn.classList.contains('disabled')) return; if(bounds&&map) map.fitBounds(bounds); });
   clearMarkersBtn.addEventListener('click',()=>{ if(clearMarkersBtn.classList.contains('disabled')) return; pushHistory(); clearAllMarkers(false); rebuildFilters(); applyFilters(); });
   clearIconsBtn.addEventListener('click',()=>{ icons=[]; selectedIconId=null; refreshPalette(); setStatus('アイコン一覧をクリアしました'); });
   document.querySelector('label.btn.ghost input#importJson').addEventListener('change',(e)=>{ const f=e.target.files&&e.target.files[0]; if(f) importJSON(f); e.target.value=''; });
-  document.getElementById('tileFolder').addEventListener('change',(e)=>{ const files=e.target.files; if(files&&files.length) loadTileFolder(files); });
-
-  function switchMode(){
-    const isImage=modeImage.checked; imageSection.style.display=isImage?'':'none'; tileSection.style.display=isImage?'none':'';
-  }
-  modeImage.addEventListener('change', switchMode);
-  modeTiles.addEventListener('change', switchMode);
 
   // --- Startup ---
-  setStatus('マップ画像未読込（画像 or タイルフォルダを選択してください）');
-  updateCount(); switchMode();
+  setStatus('マップ画像未読込（画像ファイルを選択してください）');
+  updateCount();
 </script>
 </body>
 </html>
