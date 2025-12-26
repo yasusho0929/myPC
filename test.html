@@ -71,11 +71,15 @@
     </div>
 
     <div class="section">
-      <h2>アイコン画像のアップロード（複数可）</h2>
-      <div class="row"><input type="file" id="iconFiles" accept="image/*" multiple /></div>
-      <div class="row"><input type="file" id="iconFolder" webkitdirectory directory multiple accept="image/png,image/webp" /></div>
-      <div class="hint">アイコンフォルダ例: <code>@localhost/public_html/yasusho-topics.com/wp-content/themes/cocoon-child-master/</code></div>
-      <div class="row"><button class="btn" id="clearIconsBtn">アイコン一覧をクリア</button></div>
+      <h2>アイコンフォルダから一覧取得（PNG/WEBP）</h2>
+      <div class="row">
+        <input type="text" id="iconFolderUrl" value="@localhost/public_html/yasusho-topics.com/wp-content/themes/cocoon-child-master/" style="width:100%" />
+      </div>
+      <div class="row">
+        <button class="btn primary" id="loadIconFolderBtn">フォルダから読み込み</button>
+        <button class="btn" id="clearIconsBtn">アイコン一覧をクリア</button>
+      </div>
+      <div class="hint">フォルダ内のPNG/WEBPを自動でリスト化します。</div>
       <div id="palette" class="palette" aria-label="アイコン選択パレット"></div>
       <div class="hint">アイコンを選択 → マップをクリックで配置。</div>
     </div>
@@ -132,8 +136,8 @@
   const countEl=document.getElementById('countStatus');
   const filterPanel=document.getElementById('filterPanel');
   const mapFileEl=document.getElementById('mapFile');
-  const iconFilesEl=document.getElementById('iconFiles');
-  const iconFolderEl=document.getElementById('iconFolder');
+  const iconFolderUrlEl=document.getElementById('iconFolderUrl');
+  const loadIconFolderBtn=document.getElementById('loadIconFolderBtn');
   const paletteEl=document.getElementById('palette');
   const exportBtn=document.getElementById('exportBtn');
   const exportCsvBtn=document.getElementById('exportCsvBtn');
@@ -225,7 +229,7 @@
     map=L.map('map',{ crs:L.CRS.Simple, minZoom:-5, maxZoom:5, zoomSnap:0.25, zoomDelta:0.5, wheelPxPerZoomLevel:120 });
     map.setView([0,0],0);
 
-    // 画像/タイル読み込み後のクリックで配置
+    // 画像読み込み後のクリックで配置
     map.on('click',(e)=>{
       if(!bounds||!selectedIconId) return;
       if (e.originalEvent?.target && e.originalEvent.target.closest('.leaflet-popup')) return; // 保険
@@ -274,13 +278,15 @@
     }catch(err){ console.error(err); setStatus('マップ画像の読み込みに失敗しました'); }
   }
 
-  async function loadIconFiles(files){
+  async function loadIconUrls(urls){
     const newIcons=[];
-    for(const file of files){ const dataUrl=await dataUrlFromFile(file); const dim=await loadImageDimensions(dataUrl);
-      newIcons.push({ id:uid(), name:file.name, dataUrl, width:Math.min(dim.width,64), height:Math.min(dim.height,64) });
+    for(const url of urls){
+      const dim=await loadImageDimensions(url);
+      const name=decodeURIComponent(url.split('/').pop()||'icon');
+      newIcons.push({ id:uid(), name, dataUrl:url, width:Math.min(dim.width,64), height:Math.min(dim.height,64) });
     }
-    icons=icons.concat(newIcons);
-    if(newIcons.length>0){ selectedIconId=newIcons[newIcons.length-1].id; setStatus(`アイコン追加: ${newIcons.length}件（選択中: ${newIcons[newIcons.length - 1].name}）`); }
+    icons=newIcons;
+    if(newIcons.length>0){ selectedIconId=newIcons[newIcons.length-1].id; setStatus(`アイコン読込: ${newIcons.length}件（選択中: ${newIcons[newIcons.length - 1].name}）`); }
     refreshPalette();
   }
 
@@ -535,21 +541,62 @@
     });
     pushHistory(); updateCount(); setStatus('ブラウザ保存データを読み込みました'); rebuildFilters(); applyFilters();
   }
-  async function loadIconFolder(fileList){
-    if(!fileList||fileList.length===0){ setStatus('アイコンフォルダが空です'); return; }
-    const picked=Array.from(fileList).filter(f=>{
-      const n=(f.name||'').toLowerCase();
-      return n.endsWith('.png')||n.endsWith('.webp');
-    });
-    if(picked.length===0){ setStatus('フォルダ内にPNGまたはWEBPが見つかりません'); return; }
-    await loadIconFiles(picked);
-    setStatus(`フォルダからアイコンを読み込みました（${picked.length}件）`);
+  function normalizeFolderUrl(input){
+    let url=(input||'').trim();
+    if(!url){ return ''; }
+    if(url.startsWith('@localhost')){
+      url='http://localhost'+url.replace('@localhost','');
+    }
+    if(!url.endsWith('/')) url+='/';
+    return url;
+  }
+
+  async function fetchIconUrls(folderUrl){
+    const base=normalizeFolderUrl(folderUrl);
+    if(!base){ throw new Error('フォルダURLが空です'); }
+
+    const iconListUrl=new URL('icons.json', base).toString();
+    try{
+      const res=await fetch(iconListUrl, { cache:'no-store' });
+      if(res.ok){
+        const data=await res.json();
+        const files=Array.isArray(data)?data:(data.files||[]);
+        const urls=files
+          .filter(f=>typeof f==='string')
+          .filter(f=>f.toLowerCase().endsWith('.png')||f.toLowerCase().endsWith('.webp'))
+          .map(f=>new URL(f, base).toString());
+        if(urls.length){ return urls; }
+      }
+    }catch(err){
+      console.warn('icons.jsonの読み込みに失敗', err);
+    }
+
+    const res=await fetch(base, { cache:'no-store' });
+    if(!res.ok){ throw new Error('フォルダ一覧の取得に失敗しました'); }
+    const html=await res.text();
+    const doc=new DOMParser().parseFromString(html, 'text/html');
+    const links=Array.from(doc.querySelectorAll('a'))
+      .map(a=>a.getAttribute('href')||'')
+      .filter(href=>href.toLowerCase().endsWith('.png')||href.toLowerCase().endsWith('.webp'))
+      .map(href=>new URL(href, base).toString());
+    return Array.from(new Set(links));
+  }
+
+  async function loadIconsFromFolder(folderUrl){
+    try{
+      const urls=await fetchIconUrls(folderUrl);
+      if(urls.length===0){ setStatus('フォルダ内にPNGまたはWEBPが見つかりません'); return; }
+      await loadIconUrls(urls);
+      setStatus(`フォルダからアイコンを読み込みました（${urls.length}件）`);
+    }catch(err){
+      console.error(err);
+      setStatus('フォルダ一覧の読み込みに失敗しました');
+    }
   }
 
   // --- Event bindings ---
   mapFileEl.addEventListener('change',(e)=>{ const file=e.target.files&&e.target.files[0]; if(!file) return; loadMapImage(file); });
-  iconFilesEl.addEventListener('change',(e)=>{ const files=Array.from(e.target.files||[]); if(!files.length) return; loadIconFiles(files); });
-  iconFolderEl.addEventListener('change',(e)=>{ const files=e.target.files; if(files&&files.length) loadIconFolder(files); });
+  loadIconFolderBtn.addEventListener('click',()=>loadIconsFromFolder(iconFolderUrlEl.value));
   exportBtn.addEventListener('click',()=>{ if(exportBtn.classList.contains('disabled')) return; exportJSON(); });
   exportCsvBtn.addEventListener('click',()=>{ if(exportCsvBtn.classList.contains('disabled')) return; exportCSV(); });
   fitBtn.addEventListener('click',()=>{ if(fitBtn.classList.contains('disabled')) return; if(bounds&&map) map.fitBounds(bounds); });
