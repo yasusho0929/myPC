@@ -2,9 +2,8 @@
 
 from __future__ import annotations
 
-import re
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Dict
 
 import requests
 from bs4 import BeautifulSoup
@@ -53,97 +52,35 @@ def _extract_table_data(soup: BeautifulSoup) -> Dict[str, str]:
     return table_data
 
 
-def _first_match(patterns: List[str], text: str) -> str:
-    for pattern in patterns:
-        match = re.search(pattern, text)
-        if match:
-            return match.group(1)
-    return ""
+def _find_table_value(table_data: Dict[str, str], label: str) -> str:
+    if label in table_data:
+        return table_data[label]
 
-
-def _extract_road_info(value: str) -> Dict[str, str]:
-    direction = _first_match(
-        [r"(北東|北西|南東|南西|北|南|東|西)"],
-        value,
-    )
-    road_type = _first_match(
-        [r"(公道|私道|国道|県道|市道|道道|農道|その他)"],
-        value,
-    )
-    width = _first_match(
-        [r"幅員\s*([0-9.]+)\s*(?:m|ｍ)", r"道路幅[:：]\s*([0-9.]+)\s*(?:m|ｍ)"],
-        value,
-    )
-
-    return {
-        "direction": direction,
-        "type": road_type,
-        "width": width,
-    }
-
-
-def _extract_city_planning(table_data: Dict[str, str]) -> str:
     for key, value in table_data.items():
-        if "都市計画" in key:
+        if label in key:
             return value
     return ""
 
 
-def _extract_coverage_ratio(value: str) -> Dict[str, str]:
-    percents = re.findall(r"([0-9.]+\s*％)", value)
-    if len(percents) >= 2:
-        return {
-            "coverage": percents[0].replace(" ", ""),
-            "floor_area": percents[1].replace(" ", ""),
-        }
-
-    numbers = re.findall(r"([0-9.]+)", value)
-    coverage = numbers[0] if len(numbers) >= 1 else ""
-    floor_area = numbers[1] if len(numbers) >= 2 else ""
-    return {
-        "coverage": f"{coverage}%" if coverage else "",
-        "floor_area": f"{floor_area}%" if floor_area else "",
-    }
-
-
-def scrape_suumo_property(url: str) -> List[str]:
+def scrape_suumo_property(url: str) -> Dict[str, str]:
     """
-    SUUMO物件ページから以下の情報を抽出してリストで返す。
+    SUUMO物件ページから以下の情報を抽出してJSON風の辞書で返す。
 
-    - 前面道路：方位
-    - 前面道路：種類
-    - 前面道路：幅員（ｍ）
-    - 都市計画
-    - 建ぺい率（％）
-    - 容積率（％）
+    - 私道負担・道路
+    - 建ぺい率・容積率
+    - 構造・工法
+    - 用途地域
     """
 
     html = _load_html(url)
     soup = BeautifulSoup(html, "html.parser")
     table_data = _extract_table_data(soup)
 
-    road_value = ""
-    for key, value in table_data.items():
-        if "私道負担" in key and "道路" in key:
-            road_value = value
-            break
-
-    road_info = _extract_road_info(road_value)
-    city_planning = _extract_city_planning(table_data)
-
-    ratio_value = ""
-    for key, value in table_data.items():
-        if "建ぺい率" in key and "容積率" in key:
-            ratio_value = value
-            break
-
-    ratio_info = _extract_coverage_ratio(ratio_value)
-
-    return [
-        road_info["direction"],
-        road_info["type"],
-        road_info["width"],
-        city_planning,
-        ratio_info["coverage"],
-        ratio_info["floor_area"],
+    labels = [
+        "私道負担・道路",
+        "建ぺい率・容積率",
+        "構造・工法",
+        "用途地域",
     ]
+
+    return {label: _find_table_value(table_data, label) for label in labels}
