@@ -53,6 +53,12 @@ def _is_blank(value: str | None) -> bool:
     return value is None or str(value).strip() == ""
 
 
+def _all_target_fields_blank(scraped: Dict[str, str] | None) -> bool:
+    if not scraped:
+        return True
+    return all(_is_blank(scraped.get(field)) for field in TARGET_FIELDS)
+
+
 def main() -> None:
     scrape_3site_property = _load_scrape_function()
     fieldnames, rows = _read_csv(CSV_PATH)
@@ -87,7 +93,10 @@ def main() -> None:
             for field in TARGET_FIELDS:
                 row[field] = (scraped or {}).get(field, "")
 
-            row["check"] = "ok"
+            if _all_target_fields_blank(scraped):
+                row["check"] = "not"
+            else:
+                row["check"] = "ok"
             _write_csv(CSV_PATH, fieldnames, rows)
 
 
