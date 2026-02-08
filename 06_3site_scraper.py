@@ -40,12 +40,15 @@ EMPTY_DATA = {
 def scrape_3site_property(url: str) -> Dict[str, str]:
     """URLに含まれるドメインに応じて各サイトのスクレイパーを呼び分ける。"""
     if "https://suumo.jp/" in url:
+        print("[scrape_3site_property] suumoの条件に一致したため、scrape_suumo_propertyを実行します。")
         return scrape_suumo_property(url)
 
     if "https://sumaity.com/" in url:
+        print("[scrape_3site_property] sumaityの条件に一致したため、scrape_sumaity_propertyを実行します。")
         return scrape_sumaity_property(url)
 
     if "https://myhome.nifty.com/" in url:
+        print("[scrape_3site_property] niftyの条件に一致したため、scrape_nifty_propertyを実行します。")
         return scrape_nifty_property(url)
 
     return EMPTY_DATA.copy()
